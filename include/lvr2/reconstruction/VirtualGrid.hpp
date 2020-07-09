@@ -35,8 +35,8 @@
 #ifndef VIRTUALGRID_H
 #define VIRTUALGRID_H
 #include "BigGrid.hpp"
+#include "lvr2/geometry/BoundingBox.hpp"
 
-#include <lvr2/geometry/BoundingBox.hpp>
 #include <memory>
 #include <vector>
 
@@ -47,7 +47,6 @@ template <typename BaseVecT>
 class VirtualGrid
 {
   public:
-
     /**
      * Constructor
      *
@@ -57,7 +56,6 @@ class VirtualGrid
      * @param voxelsize
      */
     VirtualGrid(BoundingBox<BaseVecT>& bb,
-                  size_t maxNodePoints,
                   size_t gridCellSize,
                   float voxelsize);
 
@@ -68,7 +66,7 @@ class VirtualGrid
     virtual ~VirtualGrid();
 
     /**
-     * Method to calculate the boxes covering the PointCloud-BB
+     * Method to calculate the boxes/chunks covering the PointCloud-BB
      *
      */
     void calculateBoxes();
@@ -81,23 +79,21 @@ class VirtualGrid
 
     /**
      *
-     * @return the smaller BoundingBoxes
+     * @return the chunks of the virtual Grid
      */
-    std::vector<shared_ptr<BoundingBox<BaseVecT>>> getBoxes() { return m_boxes; }
-
-
-
+    std::shared_ptr<std::vector<BoundingBox<BaseVecT>>> getBoxes() { return std::make_shared<std::vector<BoundingBox<BaseVecT>>>(m_boxes); }
 
   private:
-
     /**
      * locates the initial Box surrounding the lower left corner of the PointCloud-BB
      *
      */
     void findInitialBox();
 
+
+
     /**
-     * generates the Boxes surrounding the initial Box to cover the PointCloud-BB
+     * generates the Boxes/Chunks surrounding the initial Box to cover the PointCloud-BB
      *
      */
     void generateNeighbours();
@@ -105,20 +101,17 @@ class VirtualGrid
     // BoundingBox of the input PointCloud
     BoundingBox<BaseVecT> m_pcbb;
 
-    //initial Bounding Box, around the left corner of the PointCloud-BB
+    // initial Bounding Box, around the left corner of the PointCloud-BB
     BoundingBox<BaseVecT> m_initbox;
 
-    // List of (smaller) BoundingBox, which overlap the original PointCloud
-    std::vector<shared_ptr<BoundingBox<BaseVecT>>> m_boxes;
+    // List of (smaller) BoundingBox (aka Chunks), which overlap the original PointCloud
+    std::vector<BoundingBox<BaseVecT>> m_boxes;
 
-    // size of the "virtual" GridCell aka size of the smaller BBoxes
+    // size of the "virtual" GridCell aka ChunkSize
     size_t m_gridCellSize;
 
-    float m_voxelsize; // check if this is even used
-    size_t maxNodePoints; // same
-
-
-
+    // voxelsize to verify the cellsize/chunksize
+    float m_voxelsize;
 
 };
 

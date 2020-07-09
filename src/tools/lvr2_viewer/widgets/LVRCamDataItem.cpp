@@ -27,7 +27,7 @@ namespace lvr2
 {
 
 LVRCamDataItem::LVRCamDataItem(
-    CameraData data,
+    ScanImage& data,
     std::shared_ptr<ScanDataManager> sdm,
     size_t cam_id,
     vtkSmartPointer<vtkRenderer> renderer,
@@ -48,18 +48,19 @@ LVRCamDataItem::LVRCamDataItem(
 
     // change this to not inverse
     bool dummy;
-    m_matrix = m_data.extrinsics; //.inv(dummy);
+    m_matrix = m_data.extrinsics;//.inv(dummy);
 
     // set Transform from 
     setTransform(m_matrix);
 
-    std::cout << "INTRINSICS:" << std::endl;
-    std::cout << m_data.intrinsics << std::endl;
-    m_intrinsics = m_data.intrinsics.transpose();
+    // TODO: How do we get the intrincs into the item
+    // using the new structure??
+    m_intrinsics = Intrinsicsd::Identity();
+    
 
     // init pose
     double pose[6];
-    eigenToEuler<double>(m_data.extrinsics, pose);
+    extrinsicsToEuler<double>(m_data.extrinsics, pose);
 
     m_pose.x = pose[0];
     m_pose.y = pose[1];
@@ -195,7 +196,10 @@ std::vector<Vector3d > LVRCamDataItem::genFrustrumLVR(float scale)
     for(int i=0; i<cv_pixels.size(); i++)
     {
         Vector3d pixel = cv_pixels[i];
-        Vector3d p = lvr2::multiply(cam_mat_inv, pixel);
+        //Vector3d p = lvr2::multiply(cam_mat_inv, pixel);
+
+        Vector3d p = cam_mat_inv * pixel;
+
         // Vector3d p = pixel;
 
 

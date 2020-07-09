@@ -35,12 +35,21 @@
 
 #include <Eigen/SparseCholesky>
 
+#include <math.h>
+
 using namespace std;
 using namespace Eigen;
 
 namespace lvr2
 {
 
+/**
+ * @brief Lists all numbers of scans near to the scan 
+ * @param scans reference to a vector containing the SlamScanPtr
+ * @param scan number of the current scan
+ * @param options SlamOptions struct with all params
+ * @param output Returns vector of the scan-numbers which ar defined as "close" 
+ * */
 bool findCloseScans(const vector<SLAMScanPtr>& scans, size_t scan, const SLAMOptions& options, vector<size_t>& output)
 {
     if (scan < options.loopSize)
@@ -90,8 +99,19 @@ bool findCloseScans(const vector<SLAMScanPtr>& scans, size_t scan, const SLAMOpt
     return !output.empty();
 }
 
-// Conversions between Pose and Matrix representations in GraphSLAMs internally consistent Coordinate System
+
+/**
+ * Conversion from Pose to Matrix representation in GraphSLAMs internally consistent Coordinate System
+ * 
+ * @brief Conversion from Pose to Matrix representation
+ * */
 void EulerToMatrix4(const Vector3d& pos, const Vector3d& theta, Matrix4d& mat);
+
+/**
+ * Conversion from Matrix to Pose representation in GraphSLAMs internally consistent Coordinate System
+ * 
+ * @brief Conversion from Matrix to Pose representation
+ * */
 void Matrix4ToEuler(const Matrix4d mat, Vector3d& rPosTheta, Vector3d& rPos);
 
 GraphSLAM::GraphSLAM(const SLAMOptions* options)
@@ -99,7 +119,7 @@ GraphSLAM::GraphSLAM(const SLAMOptions* options)
 {
 }
 
-void GraphSLAM::doGraphSLAM(const vector<SLAMScanPtr>& scans, size_t last) const
+void GraphSLAM::doGraphSLAM(const vector<SLAMScanPtr>& scans, size_t last, const std::vector<bool>& new_scans) const
 {
     // ignore first scan, keep last scan => n = last - 1 + 1
     size_t n = last;
@@ -132,63 +152,72 @@ void GraphSLAM::doGraphSLAM(const vector<SLAMScanPtr>& scans, size_t last) const
         #pragma omp parallel for reduction(+:sum_position_diff) schedule(static)
         for (size_t i = 1; i <= last; i++)
         {
-            const SLAMScanPtr& scan = scans[i];
-
-            // Now update the Poses
-            Matrix6d Ha = Matrix6d::Identity();
-
-            Matrix4d initialPose = scan->pose();
-            Vector3d pos, theta;
-            Matrix4ToEuler(initialPose, theta, pos);
-            if (m_options->verbose)
+            if (new_scans.empty() || new_scans.at(i))
             {
-                cout << "Start of " << i << ": " << pos.transpose() << ", " << theta.transpose() << endl;
+                const SLAMScanPtr& scan = scans[i];
+
+                // Now update the Poses
+                Matrix6d Ha = Matrix6d::Identity();
+
+                Matrix4d initialPose = scan->pose();
+                Vector3d pos, theta;
+                Matrix4ToEuler(initialPose, theta, pos);
+                if (m_options->verbose)
+                {
+                    cout << "Start of " << i << ": " << pos.transpose() << ", " << theta.transpose() << endl;
+                }
+
+                double ctx, stx, cty, sty;
+
+#ifndef __APPLE__
+                sincos(theta.x(), &stx, &ctx);
+                sincos(theta.y(), &sty, &cty);
+#else
+                __sincos(theta.x(), &stx, &ctx);
+                __sincos(theta.y(), &sty, &cty);
+#endif
+
+                // Fill Ha
+                Ha(0, 4) = -pos.z() * ctx + pos.y() * stx;
+                Ha(0, 5) = pos.y() * cty * ctx + pos.z() * stx * cty;
+
+                Ha(1, 3) = pos.z();
+                Ha(1, 4) = -pos.x() * stx;
+                Ha(1, 5) = -pos.x() * ctx * cty + pos.z() * sty;
+
+
+                Ha(2, 3) = -pos.y();
+                Ha(2, 4) = pos.x() * ctx;
+                Ha(2, 5) = -pos.x() * cty * stx - pos.y() * sty;
+
+                Ha(3, 5) = sty;
+
+                Ha(4, 4) = stx;
+                Ha(4, 5) = ctx * cty;
+
+                Ha(5, 4) = ctx;
+                Ha(5, 5) = -stx * cty;
+
+                // Correct pose estimate
+                Vector6d result = Ha.inverse() * X.block<6, 1>((i - 1) * 6, 0);
+
+                // Update the Pose
+                pos -= result.block<3, 1>(0, 0);
+                theta -= result.block<3, 1>(3, 0);
+                Matrix4d transform;
+                EulerToMatrix4(pos, theta, transform);
+
+                if (m_options->verbose)
+                {
+                    cout << "End: pos: " << pos.transpose() << "," << endl << "theta: " << theta.transpose() << endl;
+                }
+
+                transform = transform * initialPose.inverse();
+
+                scan->transform(transform, m_options->createFrames, FrameUse::GRAPHSLAM);
+
+                sum_position_diff += result.block<3, 1>(0, 0).norm();
             }
-
-            double ctx, stx, cty, sty;
-            sincos(theta.x(), &stx, &ctx);
-            sincos(theta.y(), &sty, &cty);
-
-            // Fill Ha
-            Ha(0, 4) = -pos.z() * ctx + pos.y() * stx;
-            Ha(0, 5) = pos.y() * cty * ctx + pos.z() * stx * cty;
-
-            Ha(1, 3) = pos.z();
-            Ha(1, 4) = -pos.x() * stx;
-            Ha(1, 5) = -pos.x() * ctx * cty + pos.z() * sty;
-
-
-            Ha(2, 3) = -pos.y();
-            Ha(2, 4) = pos.x() * ctx;
-            Ha(2, 5) = -pos.x() * cty * stx - pos.y() * sty;
-
-            Ha(3, 5) = sty;
-
-            Ha(4, 4) = stx;
-            Ha(4, 5) = ctx * cty;
-
-            Ha(5, 4) = ctx;
-            Ha(5, 5) = -stx * cty;
-
-            // Correct pose estimate
-            Vector6d result = Ha.inverse() * X.block<6, 1>((i - 1) * 6, 0);
-
-            // Update the Pose
-            pos -= result.block<3, 1>(0, 0);
-            theta -= result.block<3, 1>(3, 0);
-            Matrix4d transform;
-            EulerToMatrix4(pos, theta, transform);
-
-            if (m_options->verbose)
-            {
-                cout << "End: " << pos.transpose() << ", " << theta.transpose() << endl;
-            }
-
-            transform = transform * initialPose.inverse();
-
-            scan->transform(transform, m_options->createFrames, FrameUse::GRAPHSLAM);
-
-            sum_position_diff += result.block<3, 1>(0, 0).norm();
         }
 
         if (m_options->createFrames)
@@ -234,9 +263,6 @@ void GraphSLAM::createGraph(const vector<SLAMScanPtr>& scans, size_t last, Graph
     }
 }
 
-/**
- * A function to fill the linear system mat * x = vec.
- */
 void GraphSLAM::fillEquation(const vector<SLAMScanPtr>& scans, const Graph& graph, GraphMatrix& mat, GraphVector& vec) const
 {
     // Cache all KDTrees
