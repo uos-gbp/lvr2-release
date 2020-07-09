@@ -51,7 +51,7 @@
 #include "lvr2/algorithm/ReductionAlgorithms.hpp"
 #include "lvr2/algorithm/Materializer.hpp"
 #include "lvr2/algorithm/Texturizer.hpp"
-#include "lvr2/algorithm/ImageTexturizer.hpp"
+//#include "lvr2/algorithm/ImageTexturizer.hpp"
 
 #include "lvr2/reconstruction/AdaptiveKSearchSurface.hpp"
 #include "lvr2/reconstruction/BilinearFastBox.hpp"
@@ -73,24 +73,24 @@
 
 #include "lvr2/geometry/BVH.hpp"
 
+#include "lvr2/reconstruction/DMCReconstruction.hpp"
+
 #include "Options.hpp"
 
-#if defined CUDA_FOUND
+#if defined LVR2_USE_CUDA
     #define GPU_FOUND
 
     #include "lvr2/reconstruction/cuda/CudaSurface.hpp"
 
     typedef lvr2::CudaSurface GpuSurface;
-#elif defined OPENCL_FOUND
+#elif defined LVR2_USE_OPENCL
     #define GPU_FOUND
 
     #include "lvr2/reconstruction/opencl/ClSurface.hpp"
     typedef lvr2::ClSurface GpuSurface;
 #endif
 
-
-
-
+using boost::optional;
 using std::unique_ptr;
 using std::make_unique;
 
@@ -98,7 +98,6 @@ using namespace lvr2;
 
 using Vec = BaseVector<float>;
 using PsSurface = lvr2::PointsetSurface<Vec>;
-
 
 template <typename BaseVecT>
 PointsetSurfacePtr<BaseVecT> loadPointCloud(const reconstruct::Options& options)
@@ -165,7 +164,6 @@ PointsetSurfacePtr<BaseVecT> loadPointCloud(const reconstruct::Options& options)
     // Calculate normals if necessary
     if(!buffer->hasNormals() || options.recalcNormals())
     {
-
         if(options.useGPU())
         {
             #ifdef GPU_FOUND
@@ -173,13 +171,15 @@ PointsetSurfacePtr<BaseVecT> loadPointCloud(const reconstruct::Options& options)
                 size_t num_points = buffer->numPoints();
                 floatArr points = buffer->getPointArray();
                 floatArr normals = floatArr(new float[ num_points * 3 ]);
-                std::cout << timestamp << "Generate GPU kd-tree..." << std::endl;
+                std::cout << timestamp << "Generating GPU kd-tree" << std::endl;
                 GpuSurface gpu_surface(points, num_points);
+                
 
                 gpu_surface.setKn(options.getKn());
                 gpu_surface.setKi(options.getKi());
                 gpu_surface.setFlippoint(flipPoint[0], flipPoint[1], flipPoint[2]);
 
+                std::cout << timestamp << "Estimating Normals GPU" << std::endl;
                 gpu_surface.calculateNormals();
                 gpu_surface.getNormals(normals);
 
@@ -217,7 +217,7 @@ std::pair<shared_ptr<GridBase>, unique_ptr<FastReconstructionBase<Vec>>>
     string decompositionType = options.getDecomposition();
 
     // Fail safe check
-    if(decompositionType != "MT" && decompositionType != "MC" && decompositionType != "PMC" && decompositionType != "SF" )
+    if(decompositionType != "MT" && decompositionType != "MC" && decompositionType != "DMC" && decompositionType != "PMC" && decompositionType != "SF" )
     {
         cout << "Unsupported decomposition type " << decompositionType << ". Defaulting to PMC." << endl;
         decompositionType = "PMC";
@@ -249,6 +249,15 @@ std::pair<shared_ptr<GridBase>, unique_ptr<FastReconstructionBase<Vec>>>
         grid->calcDistanceValues();
         auto reconstruction = make_unique<FastReconstruction<Vec, BilinearFastBox<Vec>>>(grid);
         return make_pair(grid, std::move(reconstruction));
+    }
+    else if(decompositionType == "DMC")
+    {
+        auto reconstruction = make_unique<DMCReconstruction<Vec, FastBox<Vec>>>(
+            surface,
+            surface->getBoundingBox(),
+            options.extrude()
+        );
+        return make_pair(nullptr, std::move(reconstruction));
     }
     else if(decompositionType == "MT")
     {
@@ -300,7 +309,6 @@ int main(int argc, char** argv)
 
     std::cout << options << std::endl;
 
-
     // =======================================================================
     // Load (and potentially store) point cloud
     // =======================================================================
@@ -320,7 +328,6 @@ int main(int argc, char** argv)
         ModelFactory::saveModel(pn, "pointnormals.ply");
     }
 
-
     // =======================================================================
     // Reconstruct mesh from point cloud data
     // =======================================================================
@@ -335,11 +342,10 @@ int main(int argc, char** argv)
     reconstruction->getMesh(mesh);
 
     // Save grid to file
-    if(options.saveGrid())
+    if(options.saveGrid() && grid)
     {
         grid->saveGrid("fastgrid.grid");
     }
-
 
     // =======================================================================
     // Optimize mesh
@@ -410,7 +416,6 @@ int main(int argc, char** argv)
         clusterBiMap = planarClusterGrowing(mesh, faceNormals, options.getNormalThreshold());
     }
 
-
     // =======================================================================
     // Finalize mesh
     // =======================================================================
@@ -430,7 +435,6 @@ int main(int argc, char** argv)
     // Vielleicht sollten indv. vertex und cluster colors mit in den Materializer aufgenommen werden
     // Dafür spricht: alles mit Farben findet dann an derselben Stelle statt
     // dagegen spricht: Materializer macht aktuell nur face colors und keine vertex colors
-
 
     // Vertex colors:
     // If vertex colors should be generated from pointcloud:
@@ -453,11 +457,11 @@ int main(int argc, char** argv)
         *surface
     );
 
-    ImageTexturizer<Vec> img_texter(
-        options.getTexelSize(),
-        options.getTexMinClusterSize(),
-        options.getTexMaxClusterSize()
-    );
+    // ImageTexturizer<Vec> img_texter(
+    //     options.getTexelSize(),
+    //     options.getTexMinClusterSize(),
+    //     options.getTexMaxClusterSize()
+    // );
 
     Texturizer<Vec> texturizer(
         options.getTexelSize(),
@@ -474,20 +478,23 @@ int main(int argc, char** argv)
         }
         else
         {
-            ScanprojectIO project;
+            // cout << "ScanProject" << endl;
+            // ScanprojectIO project;
 
-            if (options.getProjectDir().empty())
-            {
-                project.parse_project(options.getInputFileName());
-            }
-            else
-            {
-                project.parse_project(options.getProjectDir());
-            }
+            // if (options.getProjectDir().empty())
+            // {
+            //     cout << "Empty" << endl;
+            //     project.parse_project(options.getInputFileName());
+            // }
+            // else
+            // {
+            //     cout << "Not empty" << endl;
+            //     project.parse_project(options.getProjectDir());
+            // }
 
-            img_texter.set_project(project.get_project());
+            // img_texter.set_project(project.get_project());
 
-            materializer.setTexturizer(img_texter);
+            // materializer.setTexturizer(img_texter);
         }
     }
 
@@ -503,7 +510,7 @@ int main(int argc, char** argv)
     if (options.generateTextures())
     {
         // Set optioins to save them to disk
-        //materializer.saveTextures();
+        materializer.saveTextures();
         buffer->addIntAtomic(1, "mesh_save_textures");
         buffer->addIntAtomic(1, "mesh_texture_image_extension");
     }
