@@ -51,15 +51,20 @@
 #include <vtkOpenGLRenderer.h>
 #include <vtkNew.h>
 
+#include <vtkCullerCollection.h>
+
 // EDL shading is only available in new vtk versions
-#ifdef LVR_USE_VTK_GE_7_1
+#ifdef LVR2_USE_VTK_GE_7_1
 #include <vtkEDLShading.h>
 #include <vtkRenderStepsPass.h>
 #endif
 
 #include <QtGui>
-
-#include "ui_LVRMainWindowUI.h"
+#ifdef LVR2_USE_VTK8
+    #include "ui_LVRMainWindowQVTKOGLUI.h"
+#else
+    #include "ui_LVRMainWindowUI.h"
+#endif
 #include "ui_LVRAboutDialogUI.h"
 #include "ui_LVRTooltipDialogUI.h"
 
@@ -75,6 +80,7 @@
 #include "../widgets/LVRAnimationDialog.hpp"
 #include "../widgets/LVRTransformationDialog.hpp"
 #include "../widgets/LVRCorrespondanceDialog.hpp"
+#include "../widgets/LVRLabelDialog.hpp"
 #include "../widgets/LVRReconstructionEstimateNormalsDialog.hpp"
 #include "../widgets/LVRReconstructionMarchingCubesDialog.hpp"
 #include "../widgets/LVRReconstructionExtendedMarchingCubesDialog.hpp"
@@ -89,6 +95,7 @@
 #include "../widgets/LVRBoundingBoxItem.hpp"
 #include "../widgets/LVRPointInfo.hpp"
 #include "../vtkBridge/LVRPickingInteractor.hpp"
+#include "../vtkBridge/LVRLabelInteractor.hpp"
 #include "../vtkBridge/LVRVtkArrow.hpp"
 
 #include <iostream>
@@ -96,6 +103,16 @@
 #include <vector>
 #include <set>
 #include <boost/format.hpp>
+
+#include "../vtkBridge/LVRChunkedMeshBridge.hpp"
+#include "../vtkBridge/LVRChunkedMeshCuller.hpp"
+
+#define LABEL_NAME_COLUMN 0
+#define LABELED_POINT_COLUMN 1
+#define LABEL_VISIBLE_COLUMN 2
+#define LABEL_ID_COLUMN 3
+
+
 
 using std::vector;
 using std::cout;
@@ -114,11 +131,30 @@ public:
      */
     LVRMainWindow();
     virtual ~LVRMainWindow();
+    std::mutex display_mutex;
 
 public Q_SLOTS:
+    void updateDisplayLists(actorMap lowRes, actorMap highRes);
+            
+            //std::unordered_map<size_t, vtkSmartPointer<MeshChunkActor> > lowResActors,
+            //                std::unordered_map<size_t, vtkSmartPointer<MeshChunkActor> > highResActors);
+
+
+    void comboBoxIndexChanged(int index);
+    void addNewInstance(QTreeWidgetItem *);
     void loadModel();
     void loadModels(const QStringList& filenames);
+    void loadChunkedMesh();
+    void loadChunkedMesh(const QStringList& filenames, std::vector<std::string> layers, int cacheSize, float highResDistance);
     void manualICP();
+    void manualLabeling();
+    void changePicker(bool labeling);
+    void showLabelTreeContextMenu(const QPoint&);
+    void updatePointCount(const uint16_t, const int);
+
+    void cellSelected(QTreeWidgetItem* item, int column);
+    void addLabelClass();
+
     void showTransformationDialog();
     void showTreeContextMenu(const QPoint&);
     void showColorDialog();
@@ -205,6 +241,7 @@ public Q_SLOTS:
     std::set<LVRModelItem*> getSelectedModelItems();
     std::set<LVRPointCloudItem*> getSelectedPointCloudItems();
     std::set<LVRMeshItem*> getSelectedMeshItems();
+    void exportLabels();
 
 protected Q_SLOTS:
     void setModelVisibility(QTreeWidgetItem* treeWidgetItem, int column);
@@ -212,8 +249,15 @@ protected Q_SLOTS:
     void restoreSliders();
     void highlightBoundingBoxes();
 
+    void visibilityChanged(QTreeWidgetItem*, int);
+    void loadLabels();
+
 Q_SIGNALS:
+    void labelChanged(uint16_t);
     void correspondenceDialogOpened();
+    void labelAdded(QTreeWidgetItem*);
+    void hidePoints(int, bool);
+    void labelLoaded(int, std::vector<int>);
 
 private:
     void setupQVTK();
@@ -224,6 +268,7 @@ private:
 
     QList<QTreeWidgetItem*>                     m_items_copied;
     LVRCorrespondanceDialog*                    m_correspondanceDialog;
+    LVRLabelDialog*                   		m_labelDialog;
     std::map<LVRPointCloudItem*, LVRHistogram*> m_histograms;
     LVRPlotter*                                 m_PointPreviewPlotter;
     int                                         m_previewPoint;
@@ -238,11 +283,17 @@ private:
     vtkSmartPointer<vtkOrientationMarkerWidget> m_axesWidget;
     vtkSmartPointer<vtkAxesActor>               m_axes;
 
+    ChunkedMeshBridgePtr m_chunkBridge;
+//    vtkSmartPointer<ChunkedMeshCuller> m_chunkCuller;
+    ChunkedMeshCuller* m_chunkCuller;
     QMenu*                                      m_treeParentItemContextMenu;
     QMenu*                                      m_treeChildItemContextMenu;
 
+    QMenu*                                      m_labelTreeParentItemContextMenu;
+    QMenu*                                      m_labelTreeChildItemContextMenu;
     // Toolbar item "File"
     QAction*                            m_actionOpen;
+    QAction*                            m_actionOpenChunkedMesh;
     QAction*                            m_actionExport;
     QAction*                            m_actionQuit;
     // Toolbar item "Views"
@@ -271,6 +322,10 @@ private:
     // Toolbar item "Classification"
     QAction*                            m_actionSimple_Plane_Classification;
     QAction*                            m_actionFurniture_Recognition;
+    // Toolbar items "Labeling"
+    QAction* 				m_actionStart_labeling;
+    QAction* 				m_actionStop_labeling;
+    QAction* 				m_actionExtract_labeling;
     // Toolbar item "About"
     QMenu*                              m_menuAbout;
     // QToolbar below toolbar
@@ -314,17 +369,27 @@ private:
 
     QAction*                            m_actionShowImage;
     QAction*                            m_actionSetViewToCamera;
+    
+    //Label
+    QAction*                            m_actionAddLabelClass;
+    QAction*                            m_actionAddNewInstance;
+    QAction*                            m_actionRemoveInstance;
 
     LVRPickingInteractor*               m_pickingInteractor;
+    LVRLabelInteractorStyle*		m_labelInteractor; 
     LVRTreeWidgetHelper*                m_treeWidgetHelper;
 
 
     // EDM Rendering
-#ifdef LVR_USE_VTK_GE_7_1
+#ifdef LVR2_USE_VTK_GE_7_1
     vtkSmartPointer<vtkRenderStepsPass> m_basicPasses;
     vtkSmartPointer<vtkEDLShading>      m_edl;
 #endif
 
+    bool m_labeling = false;
+    int m_id = 1;
+    static const string UNKNOWNNAME;
+    QTreeWidgetItem* m_selectedLabelItem;
 
     enum TYPE {
         MODELITEMS_ONLY,

@@ -13,12 +13,17 @@ set(LVR2_VIEWER_SOURCES
     app/LVRMain.cpp
     app/LVRMainWindow.cpp
     app/LVRTreeWidgetHelper.cpp
+    app/Options.cpp
     vtkBridge/LVRBoundingBoxBridge.cpp
     vtkBridge/LVRModelBridge.cpp
     vtkBridge/LVRPointBufferBridge.cpp
     vtkBridge/LVRMeshBufferBridge.cpp
     vtkBridge/LVRPickingInteractor.cpp
+    vtkBridge/LVRInteractorStylePolygonPick.cpp
+    vtkBridge/LVRLabelInteractor.cpp
     vtkBridge/LVRVtkArrow.cpp
+    vtkBridge/LVRChunkedMeshCuller.cpp
+    vtkBridge/LVRChunkedMeshBridge.cpp
     widgets/LVRModelItem.cpp
     widgets/LVRPointCloudItem.cpp
     widgets/LVRMeshItem.cpp
@@ -29,6 +34,7 @@ set(LVR2_VIEWER_SOURCES
     widgets/LVRRenameDialog.cpp
     widgets/LVRAnimationDialog.cpp
     widgets/LVRTransformationDialog.cpp
+    widgets/LVRLabelDialog.cpp
     widgets/LVRCorrespondanceDialog.cpp
     widgets/LVRReconstructionEstimateNormalsDialog.cpp
     widgets/LVRReconstructionMarchingCubesDialog.cpp
@@ -49,6 +55,12 @@ set(LVR2_VIEWER_SOURCES
     util/qttf.cpp
 )
 
+#if(DEFINED VTK_MAJOR_VERSION AND VTK_MAJOR_VERSION VERSION_EQUAL "8")
+#  list(APPEND LVR2_VIEWER_SOURCES
+#    vtkBridge/PreloadOpenGLPolyDataMapper.cpp
+#)
+#endif()
+
 #####################################################################################
 # Set mocs
 #####################################################################################
@@ -56,6 +68,8 @@ set(LVR2_VIEWER_SOURCES
 set(LVR2_VIEWER_MOCS
     app/LVRMainWindow.hpp
     vtkBridge/LVRPickingInteractor.hpp
+    vtkBridge/LVRInteractorStylePolygonPick.hpp
+    vtkBridge/LVRLabelInteractor.hpp
     widgets/LVRRenameDialog.hpp
     widgets/LVRAnimationDialog.hpp
     widgets/LVRTransformationDialog.hpp
@@ -66,6 +80,7 @@ set(LVR2_VIEWER_MOCS
     widgets/LVROptimizationRemoveArtifactsDialog.hpp
     widgets/LVRFilteringRemoveOutliersDialog.hpp
     widgets/LVRFilteringMLSProjectionDialog.hpp
+    widgets/LVRLabelDialog.hpp
     widgets/LVRCorrespondanceDialog.hpp
     widgets/LVRBackgroundDialog.hpp
     widgets/LVRPointInfo.hpp
@@ -77,12 +92,23 @@ set(LVR2_VIEWER_MOCS
 # Set uis
 #####################################################################################
 
-set(LVR2_VIEWER_UIS
-   ui/LVRMainWindowUI.ui
+if(DEFINED VTK_MAJOR_VERSION AND VTK_MAJOR_VERSION VERSION_EQUAL "8")
+    # newer vtk versions
+    set(LVR2_VIEWER_UIS
+        ui/LVRMainWindowQVTKOGLUI.ui)
+else()
+    # LEGACY
+    set(LVR2_VIEWER_UIS
+        ui/LVRMainWindowUI.ui
+    )
+endif()
+
+list(APPEND LVR2_VIEWER_UIS
    ui/LVRRenameDialogUI.ui
    ui/LVRAnimationDialogUI.ui
    ui/LVRTransformationDialogUI.ui
    ui/LVRRegistrationPickCorrespondancesDialogUI.ui
+   ui/LVRLabelDialogUI.ui
    ui/LVRAboutDialogUI.ui
    ui/LVRReconstructionMarchingCubesDialogUI.ui
    ui/LVRReconstructionExtendedMarchingCubesDialogUI.ui
@@ -137,14 +163,8 @@ set(LVR2_VIEWER_DEPENDENCIES
   lvr2rply_static
   lvr2las_static
   lvr2slam6d_static
-  ${OpenCV_LIBS}
+  ${LVR2_LIB_DEPENDENCIES}
   ${Qt5Widgets_LIBRARIES}
-  ${OPENGL_LIBRARIES}
-  ${GLUT_LIBRARIES}
-  ${Boost_FILESYSTEM_LIBRARY}
-  ${Boost_SYSTEM_LIBRARY}
-  ${Boost_THREAD_LIBRARY}
-  ${Boost_PROGRAM_OPTIONS_LIBRARY}
   ${VTK_LIBRARIES}
   ${PCL_LIBRARIES}
 )

@@ -150,9 +150,11 @@ template<typename BaseVecT>
 void AdaptiveKSearchSurface<BaseVecT>::init()
 {
     cout << timestamp.getElapsedTime() << "##### Dataset statatistics: ##### " << endl << endl;
-    cout << timestamp << "Num points \t: " << this->m_pointBuffer->numPoints() << endl;
-    cout << timestamp << this->m_boundingBox << endl;
-    cout << endl;
+    cout << timestamp << "Num points: " << this->m_pointBuffer->numPoints() << endl;
+    cout << timestamp << "kn: "<< this->m_kn << endl;
+    cout << timestamp << "ki: "<< this->m_ki << endl;
+    cout << timestamp << "kd: "<< this->m_kd << endl;
+    cout << timestamp << "BB of points: \n"<< this->m_boundingBox << endl;
     this->m_centroid = BaseVecT(0.0, 0.0, 0.0);
 }
 
@@ -174,7 +176,7 @@ void AdaptiveKSearchSurface<BaseVecT>::calculateSurfaceNormals()
     string comment = timestamp.getElapsedTime() + "Estimating normals ";
     lvr2::ProgressBar progress(numPoints, comment);
 
-    #pragma omp parallel for schedule(static)
+    #pragma omp parallel for schedule(dynamic, 12)
     for(size_t i = 0; i < numPoints; i++) {
         // We have to fit these vector to have the
         // correct return values when performing the
@@ -333,7 +335,7 @@ void AdaptiveKSearchSurface<BaseVecT>::interpolateSurfaceNormals()
     lvr2::ProgressBar progress(numPoints, comment);
 
     // Interpolate normals
-    #pragma omp parallel for schedule(static)
+    #pragma omp parallel for schedule(dynamic, 12)
     for( int i = 0; i < (int)numPoints; i++)
     {
         vector<size_t> id;
