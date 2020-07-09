@@ -33,6 +33,7 @@
 #include "lvr2/io/CoordinateTransform.hpp"
 #include "lvr2/registration/TransformUtils.hpp"
 #include "lvr2/types/MatrixTypes.hpp"
+#include "lvr2/types/ScanTypes.hpp"
 
 #include <boost/filesystem.hpp>
 
@@ -116,7 +117,7 @@ Transform<T> loadFromFile(const boost::filesystem::path& file);
  * @param inFile        An ASCII file containing point cloud data (one point per line)
  * @return size_t       Number of points in file
  */
-size_t countPointsInFile(boost::filesystem::path& inFile);
+size_t countPointsInFile(const boost::filesystem::path& inFile);
 
 /**
  * @brief   Writes a Eigen transformation into a .frames file
@@ -231,6 +232,23 @@ PointBufferPtr subSamplePointBuffer(PointBufferPtr src, const size_t& n);
  */
 PointBufferPtr subSamplePointBuffer(PointBufferPtr src, const std::vector<size_t>& indices);
 
+/**
+ * @brief  Transforms \ref src, which is assumed to be in slam6Ds left-handed
+ *         coordinate system into our right-handed default coordinate 
+ *         system. The transformation is done in-place, so the original
+ *         data will be modified.
+ * 
+ * @param src                   Source buffer
+ */
+void slamToLVRInPlace(PointBufferPtr src);
+
+/**
+ * @brief Reads a directory containing data from slam6d. Represents
+ * 
+ * @param dir                   A directory containing scans
+ * @param scans                 The vector of all scans in this directory
+ */
+void parseSLAMDirectory(std::string dir, vector<ScanPtr>& scans);
 
 } // namespace lvr2
 

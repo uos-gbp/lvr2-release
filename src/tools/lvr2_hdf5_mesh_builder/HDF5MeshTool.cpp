@@ -46,7 +46,7 @@
 #include <cstring>
 #include <memory>
 
-#include "lvr2/io/GHDF5IO.hpp"
+#include "lvr2/io/hdf5/HDF5FeatureBase.hpp"
 #include "lvr2/io/hdf5/MeshIO.hpp"
 
 using namespace lvr2;
@@ -83,10 +83,42 @@ int main( int argc, char ** argv )
     ModelPtr model = ModelFactory::readModel(options.getInputFile());
     meshBuffer = model->m_mesh;
   }
+
   if (meshBuffer != nullptr)
   {
-    std::cout << timestamp << "Building mesh from buffers..." << std::endl;
-    HalfEdgeMesh<BaseVector<float>> hem(meshBuffer);
+    HalfEdgeMesh<BaseVector<float>> hem;
+    size_t numFaces = meshBuffer->numFaces();
+    size_t numVertices = meshBuffer->numVertices();
+    std::cout << timestamp << "Building mesh from buffers with " << numFaces
+      << " faces and " << numVertices << " vertices..." << std::endl;
+
+    floatArr vertices = meshBuffer->getVertices();
+    indexArray indices = meshBuffer->getFaceIndices();
+
+    for(size_t i = 0; i < numVertices; i++)
+    {
+      size_t pos = 3 * i;
+      hem.addVertex(BaseVector<float>(
+          vertices[pos],
+          vertices[pos + 1],
+          vertices[pos + 2]));
+    }
+
+    size_t invalid_face_cnt = 0;
+    for(size_t i = 0; i < numFaces; i++) {
+      size_t pos = 3 * i;
+      VertexHandle v1(indices[pos]);
+      VertexHandle v2(indices[pos + 1]);
+      VertexHandle v3(indices[pos + 2]);
+      try{
+        hem.addFace(v1, v2, v3);
+      }
+      catch(lvr2::PanicException)
+      {
+        invalid_face_cnt++;
+      }
+    }
+
     HDF5MeshToolIO hdf5;
     bool writeToHdf5Input = false;
     if (readFromHdf5 && options.getInputFile() == options.getOutputFile())
@@ -177,7 +209,26 @@ int main( int argc, char ** argv )
       std::cout << timestamp << "Using existing vertex normals..." << std::endl;
       vertexNormals = *vertexNormalsOpt;
     }
-    else
+    else if (meshBuffer != nullptr && meshBuffer->hasVertexNormals())
+    {
+      std::cout << timestamp << "Using existing vertex normals from mesh buffer..." << std::endl;
+      const FloatChannelOptional channel_opt = meshBuffer->getChannel<float>("vertex_normals");
+      if (channel_opt && channel_opt.get().width() == 3 and channel_opt.get().numElements() == hem.numVertices())
+      {
+        auto &channel = channel_opt.get();
+        vertexNormals.reserve(channel.numElements());
+        for (size_t i = 0; i < channel.numElements(); i++)
+        {
+          vertexNormals.insert(VertexHandle(i), channel[i]);
+        }
+      }
+      else
+      {
+        std::cerr << timestamp << "Error while reading vertex normals..." << std::endl;
+      }
+    }
+
+    if(vertexNormals.numValues() == 0)
     {
       std::cout << timestamp << "Computing vertex normals..." << std::endl;
       vertexNormals = calcVertexNormals(hem, faceNormals);
@@ -200,6 +251,51 @@ int main( int argc, char ** argv )
     {
       std::cout << timestamp << "Vertex normals already included." << std::endl;
     }
+
+    // vertex colors
+    using color = std::array<uint8_t, 3>;
+    DenseVertexMap<color> colors;
+    boost::optional<DenseVertexMap<color>> colorsOpt;
+    ChannelOptional<uint8_t> channel_opt;
+    if (readFromHdf5)
+    {
+      colorsOpt = hdf5In.getDenseAttributeMap<DenseVertexMap<color>>("vertex_colors");
+    }
+    if (colorsOpt)
+    {
+      std::cout << timestamp << "Using existing vertex colors..." << std::endl;
+      colors = *colorsOpt;
+    }
+    else if (meshBuffer != nullptr && (channel_opt = meshBuffer->getChannel<uint8_t>("vertex_colors"))
+      && channel_opt && channel_opt.get().width() == 3 && channel_opt.get().numElements() == hem.numVertices()) {
+      std::cout << timestamp << "Using existing colors from mesh buffer..." << std::endl;
+
+      auto &channel = channel_opt.get();
+      colors.reserve(channel.numElements());
+      for (size_t i = 0; i < channel.numElements(); i++)
+      {
+        colors.insert(VertexHandle(i), channel[i]);
+      }
+    }
+    if (!colorsOpt || !writeToHdf5Input)
+    {
+      std::cout << timestamp << "Adding vertex colors..." << std::endl;
+      bool addedVertexColors = hdf5.addDenseAttributeMap<DenseVertexMap<color>>(
+          hem, colors, "vertex_colors");
+      if (addedVertexColors)
+      {
+        std::cout << timestamp << "successfully added vertex colors" << std::endl;
+      }
+      else
+      {
+        std::cout << timestamp << "could not add vertex colors!" << std::endl;
+      }
+    }
+    else
+    {
+      std::cout << timestamp << "Vertex colors already included." << std::endl;
+    }
+
 
     // vertex average angles
     DenseVertexMap<float> averageAngles;
@@ -251,8 +347,9 @@ int main( int argc, char ** argv )
     }
     else
     {
-      std::cout << timestamp << "Computing roughness..." << std::endl;
-      roughness = calcVertexRoughness(hem, 0.3, vertexNormals);
+      std::cout << timestamp << "Computing roughness with a local radius of "
+                << options.getLocalRadius() << "m ..." << std::endl;
+      roughness = calcVertexRoughness(hem, options.getLocalRadius(), vertexNormals);
     }
     if (!roughnessOpt || !writeToHdf5Input)
     {
@@ -287,8 +384,9 @@ int main( int argc, char ** argv )
     }
     else
     {
-      std::cout << timestamp << "Computing height differences..." << std::endl;
-      heightDifferences = calcVertexHeightDifferences(hem, 0.3);
+      std::cout << timestamp << "Computing height diff with a local radius of "
+                << options.getLocalRadius() << "m ..." << std::endl;
+      heightDifferences = calcVertexHeightDifferences(hem, options.getLocalRadius());
     }
     if (!heightDifferencesOpt || !writeToHdf5Input)
     {
