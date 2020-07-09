@@ -4,6 +4,7 @@ set(LVR2_SOURCES
     texture/Texture.cpp
     texture/TextureFactory.cpp
     util/Util.cpp
+    util/Hdf5Util.cpp
     display/Renderable.cpp
     display/GroundPlane.cpp
     display/MultiPointCloud.cpp
@@ -44,21 +45,27 @@ set(LVR2_SOURCES
     io/GridIO.cpp
     io/PointBuffer.cpp
     io/ModelFactory.cpp
-    io/ScanprojectIO.cpp
     io/ScanDataManager.cpp
     io/ScanDirectoryParser.cpp
-    io/ChunkIO.cpp
-    types/Scan.cpp
-    #io/PlutoMetaDataIO.cpp
+    io/ScanIOUtils.cpp
+    io/descriptions/ScanProjectSchemaSLAM.cpp
+    io/descriptions/ScanProjectSchemaHyperlib.cpp
+    io/descriptions/DirectoryKernel.cpp
+    io/descriptions/DirectoryIO.cpp
+    io/descriptions/MetaFormatFactory.cpp
+    io/descriptions/ScanProjectSchema.cpp
+    io/descriptions/HDF5Kernel.cpp
+    io/descriptions/HDF5IO.cpp
+    io/descriptions/HDF5MetaDescriptionV2.cpp
     reconstruction/Projection.cpp
     reconstruction/PanoramaNormals.cpp
     reconstruction/ModelToImage.cpp
     reconstruction/LBKdTree.cpp
-    reconstruction/PCLFiltering.cpp
     algorithm/ChunkBuilder.cpp
     algorithm/ChunkManager.cpp
     algorithm/ChunkHashGrid.cpp
-    reconstruction/NodeData.cpp
+    algorithm/raycasting/RaycasterBase.cpp
+    algorithm/raycasting/BVHRaycaster.cpp
     registration/ICPPointAlign.cpp
     registration/KDTree.cpp
     registration/SLAMScanWrapper.cpp
@@ -67,9 +74,66 @@ set(LVR2_SOURCES
     registration/GraphSLAM.cpp
     registration/TreeUtils.cpp
     registration/OctreeReduction.cpp
+    registration/RegistrationPipeline.cpp
 )
 
+#####################################################################################
+# Add PCD io if PCL is installed
+#####################################################################################
 
+if(PCL_FOUND)
+set(LVR2_SOURCES ${LVR2_SOURCES}
+    io/PCDIO.cpp
+    reconstruction/PCLFiltering.cpp)
+endif(PCL_FOUND)
+
+if(embree_FOUND)
+list(APPEND LVR2_SOURCES 
+    algorithm/raycasting/EmbreeRaycaster.cpp
+)
+endif(embree_FOUND)
+
+if(WITH_FREENECT AND LIBFREENECT_FOUND)
+set(LVR2_SOURCES ${LVR2_SOURCES} 
+  io/KinectGrabber.cpp 
+  io/KinectIO.cpp)
+endif()
+
+#####################################################################################
+# Draco Geometry Compression
+#####################################################################################
+
+if(draco_FOUND)
+set(LVR2_SOURCES ${LVR2_SOURCES}
+  io/DracoEncoder.cpp
+  io/DracoDecoder.cpp 
+  io/DrcIO.cpp)
+endif(draco_FOUND)
+
+#####################################################################################
+# RiVLib
+#####################################################################################
+
+if(RiVLib_FOUND)
+  set(LVR2_SOURCES ${LVR2_SOURCES} 
+    io/RxpIO.cpp)
+endif()
+
+#####################################################################################
+# OpenCL
+#####################################################################################
+
+if(OPENCL_FOUND)
+list(APPEND LVR2_SOURCES
+    reconstruction/opencl/ClSurface.cpp
+)
+    # message(STATUS "!!!! CL VERSION: ${OpenCL_VERSION_MAJOR}")
+    # check this on not nvidia cabable systems
+    # list(APPEND LVR2_SOURCES
+    #     algorithm/raycasting/CLRaycaster.cpp
+    # )
+    
+endif()
 
 #####################################################################################
 # Create source groups to structure code in Visual Studio
@@ -93,29 +157,6 @@ set(LVR2_INTERNAL_DEPENDENCIES_SHARED
     lvr2las
     lvr2slam6d)
 
-set(LVR2_LIB_DEPENDENCIES
-    ${Boost_PROGRAM_OPTIONS_LIBRARY}
-    ${Boost_SYSTEM_LIBRARY}
-    ${Boost_THREAD_LIBRARY}
-    ${Boost_FILESYSTEM_LIBRARY}
-    ${OPENGL_LIBRARIES}
-    ${GLUT_LIBRARIES}
-    ${GDAL_LIBRARY}
-    ${OpenCV_LIBS}
-    ${GSL_LIBRARIES}
-    ${LZ4_LIBRARY}
-    ${TIFF_LIBRARY}
-    uuid)
-
-
-#####################################################################################
-# On Unix/Linux we need to link against pthreads
-#####################################################################################
-
-if(UNIX)
-  set(LVR2_LIB_DEPENDENCIES ${LVR2_LIB_DEPENDENCIES} pthread)
-endif(UNIX)
-
 #####################################################################################
 # Set c++0x flags for gcc compilers (needed for boctree io)
 #####################################################################################
@@ -124,70 +165,6 @@ if(UNIX)
   SET_SOURCE_FILES_PROPERTIES(io/BoctreeIO.cpp PROPERTIES COMPILE_FLAGS "-std=c++14")
 endif(UNIX)
 
-#####################################################################################
-# Add PCD io if PCL is installed
-#####################################################################################
-
-if(PCL_FOUND)
-  set(LVR2_SOURCES ${LVR2_SOURCES}
-      io/PCDIO.cpp
-      reconstruction/PCLFiltering.cpp)
-
-  set(LVR2_LIB_DEPENDENCIES ${LVR2_LIB_DEPENDENCIES} ${PCL_LIBRARIES})
-endif(PCL_FOUND)
-
-find_package(HDF5 REQUIRED C CXX HL)
-include_directories(${HDF5_INCLUDE_DIR})
-
-if(WITH_FREENECT AND LIBFREENECT_FOUND)
-  set(LVR2_SOURCES ${LVR2_SOURCES} 
-    io/KinectGrabber.cpp 
-    io/KinectIO.cpp)
-  set(LVR2_LIB_DEPENDENCIES ${LVR2_LIB_DEPENDENCIES} ${LIBFREENECT_LIBRARIES})
-endif()
-
-#####################################################################################
-# Draco Geometry Compression
-#####################################################################################
-
-if(draco_FOUND)
-  set(LVR2_SOURCES ${LVR2_SOURCES}
-    io/DracoEncoder.cpp
-    io/DracoDecoder.cpp 
-    io/DrcIO.cpp)
-
-  set(LVR2_LIB_DEPENDENCIES ${LVR2_LIB_DEPENDENCIES} ${draco_LIBRARIES})
-endif(draco_FOUND)
-
-#####################################################################################
-# RiVLib
-#####################################################################################
-
-if(RiVLib_FOUND)
-    set(LVR2_SOURCES ${LVR2_SOURCES} 
-      io/RxpIO.cpp)
-    set(LVR2_LIB_DEPENDENCIES ${LVR2_LIB_DEPENDENCIES} ${RiVLib_SCANIFC_LIBRARY})
-endif()
-
-#####################################################################################
-# OpenCL
-#####################################################################################
-
-if(OPENCL_FOUND)
-    set(LVR2_SOURCES ${LVR2_SOURCES}
-        reconstruction/opencl/ClSurface.cpp
-    )
-    set(LVR2_LIB_DEPENDENCIES ${LVR2_LIB_DEPENDENCIES} ${OpenCL_LIBRARIES})
-endif()
-
-#####################################################################################
-# yaml-cpp
-#####################################################################################
-# no found variable
-if(YAML_CPP_LIBRARIES)
-    set(LVR2_SOURCES ${LVR2_SOURCES})
-    set(LVR2_LIB_DEPENDENCIES ${LVR2_LIB_DEPENDENCIES} ${YAML_CPP_LIBRARIES})
-endif()
 
 #####################################################################################
 # Compile object files for static and dynamic library
@@ -201,7 +178,10 @@ add_library(lvr2core OBJECT ${LVR2_SOURCES})
 
 message(STATUS "Building static library")
 add_library(lvr2_static STATIC $<TARGET_OBJECTS:lvr2core>)
-target_link_libraries(lvr2_static ${LVR2_INTERNAL_DEPENDENCIES_STATIC} ${LVR2_LIB_DEPENDENCIES} ${HDF5_LIBRARIES} ${HDF5_HL_LIBRARIES})
+target_link_libraries(
+  lvr2_static 
+  ${LVR2_INTERNAL_DEPENDENCIES_STATIC} 
+  ${LVR2_LIB_DEPENDENCIES})
 
 
 #####################################################################################
@@ -211,7 +191,10 @@ target_link_libraries(lvr2_static ${LVR2_INTERNAL_DEPENDENCIES_STATIC} ${LVR2_LI
 if( NOT MSVC )
   message(STATUS "Building shared library")
   add_library(lvr2 SHARED $<TARGET_OBJECTS:lvr2core>)
-  target_link_libraries(lvr2 ${LVR2_INTERNAL_DEPENDENCIES_SHARED} ${LVR2_LIB_DEPENDENCIES} ${HDF5_LIBRARIES} ${HDF5_HL_LIBRARIES})
+  target_link_libraries(
+    lvr2 
+    ${LVR2_INTERNAL_DEPENDENCIES_SHARED} 
+    ${LVR2_LIB_DEPENDENCIES})
 
 install(TARGETS lvr2_static lvr2
   EXPORT lvr2Targets
