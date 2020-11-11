@@ -1,4 +1,3 @@
-
 #include <iostream>
 #include <memory>
 #include <tuple>
@@ -16,7 +15,7 @@
 #include "lvr2/registration/TransformUtils.hpp"
 #include "lvr2/types/MatrixTypes.hpp"
 
-#include "lvr2/io/GHDF5IO.hpp"
+#include "lvr2/io/hdf5/HDF5FeatureBase.hpp"
 #include "lvr2/io/hdf5/ArrayIO.hpp"
 #include "lvr2/io/hdf5/ChannelIO.hpp"
 #include "lvr2/io/hdf5/PointCloudIO.hpp"
@@ -64,16 +63,12 @@ void hdf5io_gen_example()
     // Merge two ios
     using MergedIO = MyHDF5IO::Merge<MyHDF5IOTest>;
 
-
-
-
-
     // Check if a feature exists in IO Type
     if(MyHDF5IO::HasFeature<lvr2::hdf5features::PointCloudIO>)
     {
         std::cout << "MyHDF5IO has the feature lvr2::hdf5features::PointCloudIO" << std::endl;
     } else {
-        std::cout << "MyHDF5IO doenst have feature lvr2::hdf5features::PointCloudIO" << std::endl;
+        std::cout << "MyHDF5IO doesnt have feature lvr2::hdf5features::PointCloudIO" << std::endl;
     }
 
     // test duplicate feature
