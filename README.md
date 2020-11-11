@@ -1,3 +1,26 @@
+## lvr2 (melodic) - 20.11.1-1
+
+The packages in the `lvr2` repository were released into the `melodic` distro by running `/usr/bin/bloom-release lvr2 --ros-distro melodic` on `Wed, 11 Nov 2020 17:51:08 -0000`
+
+The `lvr2` package was released.
+
+Version of package(s) in repository `lvr2`:
+
+- upstream repository: https://github.com/uos/lvr2.git
+- release repository: https://github.com/uos-gbp/lvr2-release.git
+- rosdistro version: `20.7.1-1`
+- old version: `20.7.1-1`
+- new version: `20.11.1-1`
+
+Versions of tools used:
+
+- bloom version: `0.10.0`
+- catkin_pkg version: `0.4.23`
+- rosdep version: `0.19.0`
+- rosdistro version: `0.8.3`
+- vcstools version: `0.1.42`
+
+
 ## lvr2 (melodic) - 20.7.1-1
 
 The packages in the `lvr2` repository were released into the `melodic` distro by running `/usr/bin/bloom-release lvr2 --rosdistro melodic` on `Thu, 09 Jul 2020 18:10:33 -0000`
